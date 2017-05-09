@@ -3,7 +3,7 @@ import urllib2
 import re
 import base64
 from datetime import date, time, datetime, timedelta
-
+import pprint
 from bs4 import BeautifulSoup as bsp
 import pandas
 from pandas import DataFrame
@@ -184,6 +184,56 @@ class bjmemc(object):
 
         return errorlist
 
+    def SelectData(self, query = None, islog = False, write = False):
+        # query must be a mongodb query
+        if isinstance(query, dict) is not True:
+            raise RuntimeError('query must be a dict!\n')
+        client_write = pymongo.MongoClient()
+        db = client_write.bjmemc
+        if islog == False:
+            collection = db.airdata
+        else:
+            collection = db.datalog
+        try:
+            collection.find(query)[0]
+            find_result = collection.find(query)
+        except IndexError:
+            raise RuntimeError('can not find result in database!\n')
+        if islog == False:
+            reform_result = {'CO':[], 'COaqi':[], 'NO2':[],
+                             'NO2aqi':[], 'O3':[], 'O3aqi':[],
+                             'SO2':[], 'SO2aqi':[], 'aqi':[],
+                             'dataTime':[], 'id':[], 'pm10':[],
+                             'pm10aqi':[], 'pm2':[], 'pm2aqi':[],
+                             'siteName':[], '_id':[], 'first':[]}
+            for post in find_result:
+                for key, content in post.items():
+                    reform_result[key].append(content)
+            find_table = DataFrame(reform_result,
+                               columns = ['CO', 'COaqi', 'NO2', 'NO2aqi', 'O3', 'O3aqi',
+                                          'SO2', 'SO2aqi', 'pm10', 'pm10aqi', 'pm2', 'pm2aqi',
+                                          'aqi','first', 'id', '_id', 'dataTime', 'siteName'])
+            if write == True:
+                now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+                filename = 'airstation-' + now + '.csv'
+                find_table.to_csv(filename, encoding = 'utf-8')
+        if islog == True:
+            reform_result = {'_id':[], 'dataTime':[], 'id':[], 'log_time':[],
+                             'reason':[], 'status':[], 'siteName':[], 'data_id':[]}
+            for post in find_result:
+                for key, content in post.items():
+                    reform_result[key].append(content)
+            find_table = DataFrame(reform_result,
+                                   columns = ['_id', 'data_id', 'dataTime', 'log_time', 'reason', 'status',
+                                              'id', 'siteName'])
+            if write == True:
+                now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+                filename = 'datalog-' + now + '.csv'
+                find_table.to_csv(filename, encoding = 'utf-8')
+
+        client_write.close()
+        return find_table
+
     def runOnetask(self):
         mp, mj = self.GetPage()
         stname, stnum, rawdata, rawtime = self.Screen(mj, mp)
@@ -195,16 +245,83 @@ class bjmemc(object):
         errorlist = self.AddDatabase(datatable)
         return errorlist
 
+class Drawer(object):
 
+    # Drawer is a method collection to represent the air data
+
+    def __init__(self):
+        self.client = pymongo.MongoClient()
+        self.db = self.client.bjmemc
+        self.airdata = self.db.airdata
+        self.datalog = self.db.datalog
+        self.status = False
+
+    # use method:checkquery to identify the data is in the database or not
+    # location: the chinese name of air monitoring station
+    # date: the date of air monitoring data
+    # islog: use db.datalog or not
+    def checkquery(self, location = None, date = None, islog = False):
+        datesplit = date.split(',')
+        if len(datesplit) <= 1:
+            period = timedelta(days = 1)
+            datef0 = datetime.strptime(datesplit[0], "%Y-%m-%d")
+            datef1 = datef0 + period
+            datef0str, datef1str = datef0.strftime('%Y-%m-%d %X'),datef1.strftime('%Y-%m-%d %X')
+        else:
+            period = timedelta(days = 1)
+            datef0 = datetime.strptime(datesplit[0], "%Y-%m-%d")
+            datef1 = datetime.strptime(datesplit[1], "%Y-%m-%d") + period
+            datef0str, datef1str = datef0.strftime('%Y-%m-%d %X'), datef1.strftime('%Y-%m-%d %X')
+        timeperiod = (datef0str, datef1str)
+        query = {'siteName':location, 'dataTime':{'$gte':timeperiod[0], '$lte':timeperiod[1]}}
+        try:
+            if islog is False:
+                self.airdata.find(query)[0]
+                find_result = self.airdata.find(query)
+            else:
+                self.datalog.find(query)[0]
+                find_result = self.datalog.find(query)
+        except IndexError:
+            find_result = None
+        finally:
+            self.client.close()
+        # the return of this method is a mongodb cursor object or None object
+        return find_result
+
+    def drawline(self, location = None, date = None):
+        dataset = self.checkquery(location = location, date = date)
+        if dataset is None:
+            raise RuntimeError('can not find data, check your query!')
+
+    def drawbar(self, location = None, date = None):
+        dataset = self.checkquery(location = location, date = date)
+        if dataset is None:
+            raise RuntimeError('can not find data, check your query!')
+    def airreport(self, location = None, date = None):
+        dataset = self.checkquery(location = location, date = date, islog = True)
+        if dataset is None:
+            raise RuntimeError('can not find data, check your query!')
 
 
 
 
 # test code
 if __name__ == '__main__':
-    t = bjmemc()
-    er = t.runOnetask()
-    print len(er)
+    t = Drawer()
+    #er = t.runOnetask()
+    #print len(er)
+    #r = t.SelectData(query = {'id':'1', 'dataTime':{'$gt':"2017-05-02"}}, islog = False, write = True)
+    #print r
+    date1 = '2017-05-10'
+    date2 = '2017-05-04,2017-05-05'
+    location ='永定门'
+    #r1, r2 = t.checkquery(date = date1, location = location),t.checkquery(date = date2, location = location)
+    #t.client.close()
+    #t.drawbar(location = location, date = date1)
+    t.airreport(location = location ,date = date2)
+
+
+
 
 
 
