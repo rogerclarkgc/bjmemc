@@ -4,10 +4,12 @@ import re
 import base64
 from datetime import date, time, datetime, timedelta
 import pprint
+
 from bs4 import BeautifulSoup as bsp
 import pandas
 from pandas import DataFrame
 import pymongo
+from matplotlib import pyplot as plt
 
 """
 A crawler to crawl data from http://zx.bjmemc.com.cn/
@@ -255,6 +257,13 @@ class Drawer(object):
         self.airdata = self.db.airdata
         self.datalog = self.db.datalog
         self.status = False
+        self.typedict = {'pm2': {'dataTime': [], 'pm2aqi': [], 'pm2': []},
+                    'pm10': {'dataTime': [], 'pm10aqi': [], 'pm10': []},
+                    'CO': {'dataTime': [], 'COaqi': [], 'CO': []},
+                    'SO2': {'dataTime': [], 'SO2aqi': [], 'SO2': []},
+                    'O3': {'dataTime': [], 'O3aqi': [], 'O3': []},
+                    'NO2': {'dataTime': [], 'NO2aqi': [], 'NO2': []},
+                    'aqi': {'dataTime': [], 'aqi': []}}
 
     # use method:checkquery to identify the data is in the database or not
     # location: the chinese name of air monitoring station
@@ -288,10 +297,33 @@ class Drawer(object):
         # the return of this method is a mongodb cursor object or None object
         return find_result
 
-    def drawline(self, location = None, date = None):
+    def drawline(self, location = None, date = None, monitor = None):
         dataset = self.checkquery(location = location, date = date)
         if dataset is None:
             raise RuntimeError('can not find data, check your query!')
+
+        try:
+            select_monitor = self.typedict.__getitem__(monitor)
+        except KeyError:
+            raise RuntimeError('can not find this parameter!')
+        for post in dataset:
+            for key, content in post.items():
+                if select_monitor.has_key(key):
+                    select_monitor[key].append(content)
+                else:
+                    pass
+        timestamps = [datetime.strptime(i, '%Y-%m-%d %X') for i in select_monitor['dataTime']]
+        airpollut_concen = select_monitor[monitor]
+        airpollut_aqi = select_monitor[monitor+'aqi']
+        plt.plot(timestamps, airpollut_concen, 'k',
+                 timestamps, airpollut_concen, 'ro',
+                 timestamps, airpollut_aqi, 'k',
+                 timestamps, airpollut_aqi, 'bo')
+        plt.show()
+        return  select_monitor
+
+
+
 
     def drawbar(self, location = None, date = None):
         dataset = self.checkquery(location = location, date = date)
@@ -318,7 +350,11 @@ if __name__ == '__main__':
     #r1, r2 = t.checkquery(date = date1, location = location),t.checkquery(date = date2, location = location)
     #t.client.close()
     #t.drawbar(location = location, date = date1)
-    t.airreport(location = location ,date = date2)
+    #t.airreport(location = location ,date = date2)
+    table = t.drawline(location = location,
+                       date = date1,
+                       monitor = 'NO2')
+    #pprint.pprint(table)
 
 
 
