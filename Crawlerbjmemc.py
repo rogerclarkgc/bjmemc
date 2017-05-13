@@ -10,6 +10,7 @@ import pandas
 from pandas import DataFrame
 import pymongo
 from matplotlib import pyplot as plt
+from fake_useragent import UserAgent
 
 """
 A crawler to crawl data from http://zx.bjmemc.com.cn/
@@ -22,11 +23,12 @@ class bjmemc(object):
     def __init__(self):
         # baseURL is the source of mainpage, jsURL is the source of mainjs
         # status == 0,download not success, status == 2, all download success
-        self.baseURL = 'http://zx.bjmemc.com.cn/getAqiList.shtml?timestamp='
+        self.baseURL = 'http://zx.bjmemc.com.cn/getAqiList.shtml?timestamp=1483068918256'
         self.jsURL = 'http://zx.bjmemc.com.cn/js/public_controller.js'
         self.status = {'mainPage':'default',
                        'mainjs':'default',
                        }
+        self.useragent = UserAgent().random
 
     def CheckStatus(self):
         # Check the download progess
@@ -34,7 +36,10 @@ class bjmemc(object):
 
     def GetPage(self, retry = 3):
         # Download mainPage and mainjs
-        requestHTML = urllib2.Request(url = self.baseURL)
+        headers = {'User-Agent':self.useragent,
+                   'Host':'zx.bjmemc.com.cn',
+                   'Connection':'keep-alive'}
+        requestHTML = urllib2.Request(url = self.baseURL, headers = headers)
         requestJS = urllib2.Request(url = self.jsURL)
         if retry > 0:
             try:
@@ -130,6 +135,8 @@ class bjmemc(object):
         # Reconstruct and merge data use pandas.DataFrame
         allStation = []
         timeList = []
+        crawltime = []
+        strnow = datetime.now().strftime("%Y-%m-%d %X")
         dataTable = allData
         timeStamp = base64.decodestring(rawDataTime)
         for i in allData['id']:
@@ -140,8 +147,10 @@ class bjmemc(object):
             else:
                 allStation.append(str(i))
             timeList.append(timeStamp)
+            crawltime.append(strnow)
         dataTable['siteName'] = allStation
         dataTable['dataTime'] = timeList
+        dataTable['log_time'] = crawltime
         dataTable = DataFrame(dataTable)
         # dataTable is a pandas.DataFrame object, which contains the air monitoring data of all site(50)
         return dataTable
@@ -162,7 +171,11 @@ class bjmemc(object):
         data_iter = dataTable.iterrows()
         for row in data_iter:
             post = row[1].to_dict()
-            check_data = collection.find_one({'id':post['id'], 'dataTime':post['dataTime']})
+            check_data = collection.find_one({'id':post['id'], 'dataTime':post['dataTime'],
+                                             'aqi':post['aqi'], 'SO2aqi':post['SO2aqi'],
+                                              'O3aqi':post['O3aqi'], 'NO2aqi':post['NO2aqi'],
+                                              'COaqi':post['COaqi'], 'pm10aqi':post['pm10aqi'],
+                                              'pm2aqi':post['pm2aqi']})
             log = {'siteName': post['siteName'],
                    'id': post['id'],
                    'dataTime': post['dataTime'],
@@ -207,14 +220,15 @@ class bjmemc(object):
                              'SO2':[], 'SO2aqi':[], 'aqi':[],
                              'dataTime':[], 'id':[], 'pm10':[],
                              'pm10aqi':[], 'pm2':[], 'pm2aqi':[],
-                             'siteName':[], '_id':[], 'first':[]}
+                             'siteName':[], '_id':[], 'first':[],
+                             'log_time':[]}
             for post in find_result:
                 for key, content in post.items():
                     reform_result[key].append(content)
             find_table = DataFrame(reform_result,
                                columns = ['CO', 'COaqi', 'NO2', 'NO2aqi', 'O3', 'O3aqi',
                                           'SO2', 'SO2aqi', 'pm10', 'pm10aqi', 'pm2', 'pm2aqi',
-                                          'aqi','first', 'id', '_id', 'dataTime', 'siteName'])
+                                          'aqi','first', 'id', '_id', 'dataTime', 'log_time', 'siteName'])
             if write == True:
                 now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
                 filename = 'airstation-' + now + '.csv'
@@ -257,13 +271,20 @@ class Drawer(object):
         self.airdata = self.db.airdata
         self.datalog = self.db.datalog
         self.status = False
-        self.typedict = {'pm2': {'dataTime': [], 'pm2aqi': [], 'pm2': []},
-                    'pm10': {'dataTime': [], 'pm10aqi': [], 'pm10': []},
-                    'CO': {'dataTime': [], 'COaqi': [], 'CO': []},
-                    'SO2': {'dataTime': [], 'SO2aqi': [], 'SO2': []},
-                    'O3': {'dataTime': [], 'O3aqi': [], 'O3': []},
-                    'NO2': {'dataTime': [], 'NO2aqi': [], 'NO2': []},
-                    'aqi': {'dataTime': [], 'aqi': []}}
+        self.typedict = {'pm2': {'dataTime': [], 'pm2aqi': [], 'pm2': [], 'log_time':[]},
+                    'pm10': {'dataTime': [], 'pm10aqi': [], 'pm10': [], 'log_time':[]},
+                    'CO': {'dataTime': [], 'COaqi': [], 'CO': [], 'log_time':[]},
+                    'SO2': {'dataTime': [], 'SO2aqi': [], 'SO2': [], 'log_time':[]},
+                    'O3': {'dataTime': [], 'O3aqi': [], 'O3': [], 'log_time':[]},
+                    'NO2': {'dataTime': [], 'NO2aqi': [], 'NO2': [], 'log_time':[]},
+                    'aqi': {'dataTime': [], 'aqi': [], 'log_time':[]}}
+        self.typeunit = {'pm2':r'$\mu g\cdot m^{-3}$',
+                         'pm10':r'$\mu g\cdot m^{-3}$',
+                         'CO':r'$mg\cdot m^{-3}$',
+                         'SO2':r'$\mu g\cdot m^{-3}$',
+                         'O3':r'$\mu g\cdot m^{-3}$',
+                         'NO2':r'$\mu g\cdot m^{-3}$',
+                         'aqi':r''}
 
     # use method:checkquery to identify the data is in the database or not
     # location: the chinese name of air monitoring station
@@ -312,14 +333,53 @@ class Drawer(object):
                     select_monitor[key].append(content)
                 else:
                     pass
-        timestamps = [datetime.strptime(i, '%Y-%m-%d %X') for i in select_monitor['dataTime']]
-        airpollut_concen = select_monitor[monitor]
-        airpollut_aqi = select_monitor[monitor+'aqi']
-        plt.plot(timestamps, airpollut_concen, 'k',
-                 timestamps, airpollut_concen, 'ro',
-                 timestamps, airpollut_aqi, 'k',
-                 timestamps, airpollut_aqi, 'bo')
-        plt.show()
+        timestamps = [datetime.strptime(i, '%Y-%m-%d %X') for i in select_monitor['log_time']]
+        if monitor is not 'aqi':
+            airpollut_concen = select_monitor[monitor]
+            airpollut_aqi = select_monitor[monitor+'aqi']
+            # draw aqi line graph
+            plt.figure(1)
+
+            plt.subplot(211)
+            line1 = plt.plot(timestamps, airpollut_aqi, 'k',
+                         timestamps, airpollut_aqi, 'ro')
+            plt.setp(line1, lw = 1.5)
+            plt.grid(True)
+            # set the text of graph
+            title = date + ' '+ monitor+' aqi'
+            xlab1 = 'date'
+            ylab1 = 'aqi'
+            plt.xlabel(xlab1)
+            plt.ylabel(ylab1)
+            plt.title(title)
+            # draw concentration of air pollutant
+            plt.subplot(212)
+            line2 = plt.plot(timestamps, airpollut_concen, 'k',
+                         timestamps, airpollut_concen, 'bo')
+            plt.setp(line2, lw = 1.5)
+            plt.grid(True)
+            title = date + " " + monitor + ' concentration'
+            xlab2 = 'date'
+            ylab2 = self.typeunit[monitor]
+            plt.xlabel(xlab2)
+            plt.ylabel(ylab2)
+            plt.title(title)
+            plt.show()
+        else:
+            airpollut_aqi = select_monitor['aqi']
+            plt.figure(1)
+            line1 = plt.plot(timestamps, airpollut_aqi, 'k',
+                             timestamps, airpollut_aqi, 'ro')
+            plt.setp(line1, lw = 1.5)
+            plt.grid(True)
+            title = date + ' ' + monitor
+            xlab = 'date'
+            ylab = self.typeunit[monitor]
+            plt.xlabel(xlab)
+            plt.ylabel(ylab)
+            plt.title(title)
+            plt.show()
+
         return  select_monitor
 
 
@@ -344,8 +404,8 @@ if __name__ == '__main__':
     #print len(er)
     #r = t.SelectData(query = {'id':'1', 'dataTime':{'$gt':"2017-05-02"}}, islog = False, write = True)
     #print r
-    date1 = '2017-05-10'
-    date2 = '2017-05-04,2017-05-05'
+    date1 = '2017-05-13'
+    date2 = '2017-05-02,2017-05-11'
     location ='永定门'
     #r1, r2 = t.checkquery(date = date1, location = location),t.checkquery(date = date2, location = location)
     #t.client.close()
@@ -354,7 +414,10 @@ if __name__ == '__main__':
     table = t.drawline(location = location,
                        date = date1,
                        monitor = 'NO2')
-    #pprint.pprint(table)
+    #query = t.checkquery(location = location, date = date1)
+
+    #for post in query:
+        #pprint.pprint(post)
 
 
 
