@@ -3,6 +3,8 @@ import urllib2
 import re
 import base64
 from datetime import date, time, datetime, timedelta
+import time
+import numpy as np
 import pprint
 
 from bs4 import BeautifulSoup as bsp
@@ -124,6 +126,7 @@ class bjmemc(object):
         findAQICO_num = [float(i) for i in findAQICO]
         findCO_num = [float(i) for i in findCO]
 
+
         allData = {"id":findID, "aqi":findAQI_num, "first":findFirst, "NO2aqi":findAQINO2_num,
                    "NO2":findNO2_num, "pm10aqi":findAQIpm10_num, "pm10":findpm10_num, "pm2aqi":findAQIpm2_num,
                    "pm2":findpm2_num, "SO2aqi":findAQISO2_num, "SO2":findSO2_num, "O3aqi":findAQIO3_num,
@@ -152,6 +155,7 @@ class bjmemc(object):
         dataTable['dataTime'] = timeList
         dataTable['log_time'] = crawltime
         dataTable = DataFrame(dataTable)
+        dataTable['addaqi'] = dataTable.sum(axis = 1, numeric_only = True)
         # dataTable is a pandas.DataFrame object, which contains the air monitoring data of all site(50)
         return dataTable
 
@@ -172,10 +176,7 @@ class bjmemc(object):
         for row in data_iter:
             post = row[1].to_dict()
             check_data = collection.find_one({'id':post['id'], 'dataTime':post['dataTime'],
-                                             'aqi':post['aqi'], 'SO2aqi':post['SO2aqi'],
-                                              'O3aqi':post['O3aqi'], 'NO2aqi':post['NO2aqi'],
-                                              'COaqi':post['COaqi'], 'pm10aqi':post['pm10aqi'],
-                                              'pm2aqi':post['pm2aqi']})
+                                              'addaqi':post['addaqi']})
             log = {'siteName': post['siteName'],
                    'id': post['id'],
                    'dataTime': post['dataTime'],
@@ -385,10 +386,24 @@ class Drawer(object):
 
 
 
-    def drawbar(self, location = None, date = None):
+    def drawbar(self, location = None, date = None, monitor = None):
+
         dataset = self.checkquery(location = location, date = date)
         if dataset is None:
             raise RuntimeError('can not find data, check your query!')
+        try:
+            select_monitor = self.typedict.__getitem__(monitor)
+        except KeyError:
+            raise RuntimeError('can not find this parameter!')
+        for post in dataset:
+            for key, content in post.items():
+               if select_monitor.has_key(key):
+                   select_monitor[key].append(content)
+               else:
+                   pass
+        timestamps = [datetime.strptime(i, '%Y-%m-%d %X') for i in select_monitor['log_time']]
+
+
     def airreport(self, location = None, date = None):
         dataset = self.checkquery(location = location, date = date, islog = True)
         if dataset is None:
@@ -404,7 +419,7 @@ if __name__ == '__main__':
     #print len(er)
     #r = t.SelectData(query = {'id':'1', 'dataTime':{'$gt':"2017-05-02"}}, islog = False, write = True)
     #print r
-    date1 = '2017-05-13'
+    date1 = '2017-05-16'
     date2 = '2017-05-02,2017-05-11'
     location ='永定门'
     #r1, r2 = t.checkquery(date = date1, location = location),t.checkquery(date = date2, location = location)

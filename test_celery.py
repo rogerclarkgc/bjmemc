@@ -18,4 +18,5 @@ app.config_from_object('celeryconfig', force = True)
 def run():
     t = bjmemc()
     errorlist = t.runOnetask()
-    print len(errorlist)
+    idlist = [i['id'] for i in errorlist]
+    print idlist
