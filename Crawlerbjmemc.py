@@ -77,17 +77,28 @@ class bjmemc(object):
         rawData = re.findall('var\swfelkfbnx\s=\seval\(\"\(\"\+b\.decode\(\'(.*?)\'\)', mainPage)
 
         # got the data's date
-        rawDataTime = re.findall('gxDate\s=\sdate_gs_03.*?\+b\.decode\(\'(.*?)\'\)\)', mainPage)[0]
+        """
+        the time got from sourcepage not encoding by base64 now, the code is discard
+        """
+        #rawDataTime = re.findall('gxDate\s=\sdate_gs_03.*?\+b\.decode\(\'(.*?)\'\)\)', mainPage)[0]
         # stationName: a list object, which contained the name of all air monitoring station
         # stationNum: a list object, which contained the ID of all air monitoring station
         # rawData: a str object, the raw data crawled from mainPage, encoding with base64 coding system
         # rawDataTime: a str object, the raw timestamps crawled from mainPage, encoding with base64 coding system
-        return stationName, stationNum, rawData, rawDataTime
+        return stationName, stationNum, rawData # rawDataTime
+
+    def Screen2(self, mainjs=None, mainPage=None):
+        rawData = re.findall('var\swfelkfbnx\s=\seval\(\'(.*?)\'\)', mainPage)
+        stationLine = re.findall('stationList\s=\s\'\{"Table":\[(\{.*?\})\]\}\'', mainjs)
+        stationName = re.findall('"StationName":"(.*?)"', stationLine[1])
+        stationNum = re.findall('"StationNumber":"(.*?)"', stationLine[1])
+        return stationName, stationNum, rawData
 
     def ScreenRawData(self, rawdata = None):
         # screen air condition data from rawData
-        transData = base64.decodestring(rawdata[0])
-        transDataLine = re.findall('\[\{(.*?)\}\]', transData)[0]
+        #transData = base64.decodestring(rawdata[0])
+        #transDataLine = re.findall('\[\{(.*?)\}\]', transData)[0]
+        transDataLine = rawdata[0]
 
         findID = re.findall('"id":(\d{1,})', transDataLine) # the ID of air station
         #findID_num = [int(i) for i in findID]
@@ -134,14 +145,14 @@ class bjmemc(object):
 
         return allData
 
-    def MergeData(self, stationName = None, stationNum = None, rawDataTime = None, allData = None):
+    def MergeData(self, stationName = None, stationNum = None, allData = None):
         # Reconstruct and merge data use pandas.DataFrame
         allStation = []
-        timeList = []
+        #timeList = []
         crawltime = []
         strnow = datetime.now().strftime("%Y-%m-%d %X")
         dataTable = allData
-        timeStamp = base64.decodestring(rawDataTime)
+        #timeStamp = base64.decodestring(rawDataTime)
         for i in allData['id']:
             if stationNum.__contains__(i):
                 index = stationNum.index(i)
@@ -149,10 +160,10 @@ class bjmemc(object):
                 allStation.append(siteName)
             else:
                 allStation.append(str(i))
-            timeList.append(timeStamp)
+            #timeList.append(timeStamp)
             crawltime.append(strnow)
         dataTable['siteName'] = allStation
-        dataTable['dataTime'] = timeList
+        #dataTable['dataTime'] = timeList
         dataTable['log_time'] = crawltime
         dataTable = DataFrame(dataTable)
         dataTable['addaqi'] = dataTable.sum(axis = 1, numeric_only = True)
@@ -175,11 +186,10 @@ class bjmemc(object):
         data_iter = dataTable.iterrows()
         for row in data_iter:
             post = row[1].to_dict()
-            check_data = collection.find_one({'id':post['id'], 'dataTime':post['dataTime'],
+            check_data = collection.find_one({'id':post['id'], 'NO2':post['NO2'],
                                               'addaqi':post['addaqi']})
             log = {'siteName': post['siteName'],
                    'id': post['id'],
-                   'dataTime': post['dataTime'],
                    'status': 'default',
                    'reason': 'default',
                    'data_id': 'default',
@@ -219,29 +229,28 @@ class bjmemc(object):
             reform_result = {'CO':[], 'COaqi':[], 'NO2':[],
                              'NO2aqi':[], 'O3':[], 'O3aqi':[],
                              'SO2':[], 'SO2aqi':[], 'aqi':[],
-                             'dataTime':[], 'id':[], 'pm10':[],
-                             'pm10aqi':[], 'pm2':[], 'pm2aqi':[],
-                             'siteName':[], '_id':[], 'first':[],
-                             'log_time':[]}
+                             'id':[], 'pm10':[],'pm10aqi':[],
+                             'pm2':[], 'pm2aqi':[],'siteName':[],
+                             '_id':[], 'first':[],'log_time':[]}
             for post in find_result:
                 for key, content in post.items():
                     reform_result[key].append(content)
             find_table = DataFrame(reform_result,
                                columns = ['CO', 'COaqi', 'NO2', 'NO2aqi', 'O3', 'O3aqi',
                                           'SO2', 'SO2aqi', 'pm10', 'pm10aqi', 'pm2', 'pm2aqi',
-                                          'aqi','first', 'id', '_id', 'dataTime', 'log_time', 'siteName'])
+                                          'aqi','first', 'id', '_id', 'log_time', 'siteName'])
             if write == True:
                 now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
                 filename = 'airstation-' + now + '.csv'
                 find_table.to_csv(filename, encoding = 'utf-8')
         if islog == True:
-            reform_result = {'_id':[], 'dataTime':[], 'id':[], 'log_time':[],
+            reform_result = {'_id':[], 'id':[], 'log_time':[],
                              'reason':[], 'status':[], 'siteName':[], 'data_id':[]}
             for post in find_result:
                 for key, content in post.items():
                     reform_result[key].append(content)
             find_table = DataFrame(reform_result,
-                                   columns = ['_id', 'data_id', 'dataTime', 'log_time', 'reason', 'status',
+                                   columns = ['_id', 'data_id', 'log_time', 'reason', 'status',
                                               'id', 'siteName'])
             if write == True:
                 now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
@@ -253,11 +262,10 @@ class bjmemc(object):
 
     def runOnetask(self):
         mp, mj = self.GetPage()
-        stname, stnum, rawdata, rawtime = self.Screen(mj, mp)
+        stname, stnum, rawdata = self.Screen2(mj, mp)
         alldata = self.ScreenRawData(rawdata)
         datatable = self.MergeData(stationName = stname,
                                    stationNum = stnum,
-                                   rawDataTime = rawtime,
                                    allData = alldata)
         errorlist = self.AddDatabase(datatable)
         return errorlist
@@ -266,19 +274,23 @@ class Drawer(object):
 
     # Drawer is a method collection to represent the air data
 
-    def __init__(self):
-        self.client = pymongo.MongoClient()
+    def __init__(self, username = None, password = None, host = None):
+        if username == None:
+            self.client = pymongo.MongoClient()
+        else:
+            loginfo = "mongodb://%s:%s@%s" % (username, password, host)
+            self.client = pymongo.MongoClient(loginfo)
         self.db = self.client.bjmemc
         self.airdata = self.db.airdata
         self.datalog = self.db.datalog
         self.status = False
-        self.typedict = {'pm2': {'dataTime': [], 'pm2aqi': [], 'pm2': [], 'log_time':[]},
-                    'pm10': {'dataTime': [], 'pm10aqi': [], 'pm10': [], 'log_time':[]},
-                    'CO': {'dataTime': [], 'COaqi': [], 'CO': [], 'log_time':[]},
-                    'SO2': {'dataTime': [], 'SO2aqi': [], 'SO2': [], 'log_time':[]},
-                    'O3': {'dataTime': [], 'O3aqi': [], 'O3': [], 'log_time':[]},
-                    'NO2': {'dataTime': [], 'NO2aqi': [], 'NO2': [], 'log_time':[]},
-                    'aqi': {'dataTime': [], 'aqi': [], 'log_time':[]}}
+        self.typedict = {'pm2': {'pm2aqi': [], 'pm2': [], 'log_time':[]},
+                    'pm10': {'pm10aqi': [], 'pm10': [], 'log_time':[]},
+                    'CO': {'COaqi': [], 'CO': [], 'log_time':[]},
+                    'SO2': {'SO2aqi': [], 'SO2': [], 'log_time':[]},
+                    'O3': {'O3aqi': [], 'O3': [], 'log_time':[]},
+                    'NO2': {'NO2aqi': [], 'NO2': [], 'log_time':[]},
+                    'aqi': {'aqi': [], 'log_time':[]}}
         self.typeunit = {'pm2':r'$\mu g\cdot m^{-3}$',
                          'pm10':r'$\mu g\cdot m^{-3}$',
                          'CO':r'$mg\cdot m^{-3}$',
@@ -304,7 +316,7 @@ class Drawer(object):
             datef1 = datetime.strptime(datesplit[1], "%Y-%m-%d") + period
             datef0str, datef1str = datef0.strftime('%Y-%m-%d %X'), datef1.strftime('%Y-%m-%d %X')
         timeperiod = (datef0str, datef1str)
-        query = {'siteName':location, 'dataTime':{'$gte':timeperiod[0], '$lte':timeperiod[1]}}
+        query = {'siteName':location, 'log_time':{'$gte':timeperiod[0], '$lte':timeperiod[1]}}
         try:
             if islog is False:
                 self.airdata.find(query)[0]
@@ -359,7 +371,7 @@ class Drawer(object):
                          timestamps, airpollut_concen, 'bo')
             plt.setp(line2, lw = 1.5)
             plt.grid(True)
-            title = date + " " + monitor + ' concentration'
+            title = date  + " " + monitor + ' concentration'
             xlab2 = 'date'
             ylab2 = self.typeunit[monitor]
             plt.xlabel(xlab2)
@@ -373,7 +385,7 @@ class Drawer(object):
                              timestamps, airpollut_aqi, 'ro')
             plt.setp(line1, lw = 1.5)
             plt.grid(True)
-            title = date + ' ' + monitor
+            title = date  + ' ' + monitor
             xlab = 'date'
             ylab = self.typeunit[monitor]
             plt.xlabel(xlab)
@@ -414,14 +426,16 @@ class Drawer(object):
 
 # test code
 if __name__ == '__main__':
-    t = Drawer()
+    t = Drawer(username='roger',
+               password='1992_deusexmachina',
+               host = '198.199.95.172:27017/bjmemc')
     #er = t.runOnetask()
     #print len(er)
     #r = t.SelectData(query = {'id':'1', 'dataTime':{'$gt':"2017-05-02"}}, islog = False, write = True)
     #print r
-    date1 = '2017-05-16'
+    date1 = '2017-05-18'
     date2 = '2017-05-02,2017-05-11'
-    location ='永定门'
+    location ='官园'
     #r1, r2 = t.checkquery(date = date1, location = location),t.checkquery(date = date2, location = location)
     #t.client.close()
     #t.drawbar(location = location, date = date1)

@@ -14,9 +14,9 @@ CELERY_RESULT_BACKEND = 'redis://localhost'
 # BEAWARE!! 'task' key is MY specified task's FILENAME
 # NOTE: use '.' to represent the child module or function of MY task module
 CELERYBEAT_SCHEDULE = {
-    'add-every-15min':{
+    'add-every-1min':{
         'task':'test_celery.run',
-        'schedule': crontab(minute = '*/15'),
+        'schedule': crontab(minute = '*/1'),
         'args':()
     }
 }
