@@ -426,9 +426,9 @@ class Drawer(object):
 
 # test code
 if __name__ == '__main__':
-    t = Drawer(username='roger',
-               password='1992_deusexmachina',
-               host = '198.199.95.172:27017/bjmemc')
+    t = Drawer(username= None,
+               password= None,
+               host = None)
     #er = t.runOnetask()
     #print len(er)
     #r = t.SelectData(query = {'id':'1', 'dataTime':{'$gt':"2017-05-02"}}, islog = False, write = True)
